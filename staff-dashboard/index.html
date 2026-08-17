@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OPD triage -- staff dashboard</title>
+<link rel="stylesheet" href="src/styles.css">
+</head>
+<body>
+  <h1>OPD triage -- staff dashboard</h1>
+  <div class="sub">Escalation queue and case log. Prefers the central server; falls back to this device's local cases if no server is configured.</div>
+
+  <div class="tabs">
+    <div class="tab active" data-p="queue">Escalation queue</div>
+    <div class="tab" data-p="all">All cases</div>
+  </div>
+
+  <div class="grid" id="stats"></div>
+
+  <div class="panel active" id="p-queue"></div>
+  <div class="panel" id="p-all"></div>
+
+  <div class="sync">
+    <span class="dot" id="sourceDot"></span>
+    <span id="sourceStatus">Loading…</span>
+  </div>
+
+  <script type="module" src="src/app.js"></script>
+</body>
+</html>

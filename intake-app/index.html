@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OPD intake -- station</title>
+<link rel="stylesheet" href="src/styles.css">
+</head>
+<body>
+  <h1>OPD intake</h1>
+  <div class="sub">Front-desk station. Works fully offline -- cases are saved on this device immediately and sync in the background when connected.</div>
+
+  <div class="card">
+    <label for="patientToken">Patient token</label>
+    <input id="patientToken" placeholder="e.g. T-104">
+
+    <label for="complaint">Chief complaint</label>
+    <select id="complaint"></select>
+
+    <label>Red-flag signs present (tap all that apply)</label>
+    <div class="chips" id="flags"></div>
+
+    <button id="submit">Submit intake</button>
+    <div id="submitMsg" class="msg"></div>
+  </div>
+
+  <div class="card">
+    <label>Cases recorded on this device</label>
+    <div id="history"></div>
+  </div>
+
+  <div class="sync-bar">
+    <span class="dot" id="syncDot"></span>
+    <span id="syncStatus">Starting…</span>
+  </div>
+
+  <script type="module" src="src/app.js"></script>
+</body>
+</html>

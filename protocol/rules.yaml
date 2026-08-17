@@ -1,0 +1,65 @@
+version: "0.1.0"
+status: draft            # draft | clinician_reviewed | approved
+last_reviewed_by: null
+last_reviewed_date: null
+
+tiers:
+  emergency:  { label: "Emergency", target_review_minutes: 0 }
+  urgent:     { label: "Urgent", target_review_minutes: 15 }
+  standard:   { label: "Standard", target_review_minutes: 60 }
+  nonurgent:  { label: "Non-urgent", target_review_minutes: null }
+
+# Any flag present here forces tier=emergency and mandatory human review,
+# regardless of chief complaint.
+red_flags:
+  - id: altered_consciousness
+    label: "Altered consciousness / unresponsive / confused"
+  - id: airway_compromise
+    label: "Airway compromise or stridor"
+  - id: breathing_difficulty_rest
+    label: "Breathing difficulty at rest"
+  - id: active_bleeding
+    label: "Active uncontrolled bleeding"
+  - id: chest_pain_cardiac
+    label: "Chest pain with breathlessness, sweating, or radiating to arm/jaw"
+  - id: stroke_signs
+    label: "Facial droop, slurred speech, one-sided weakness (any duration)"
+  - id: severe_trauma
+    label: "Severe trauma / suspected fracture with deformity"
+  - id: pain_9_10
+    label: "Pain severity 9-10 out of 10"
+  - id: pregnancy_bleeding
+    label: "Pregnancy with bleeding or severe abdominal pain"
+  - id: infant_fever
+    label: "Infant under 3 months with fever"
+  - id: self_harm_risk
+    label: "Suicidal ideation or expressed intent to self-harm"
+
+# Base tier + department per recognized chief-complaint category.
+# "unrecognized" input (no category match) always -> human review, never a guess.
+complaints:
+  chest_pain:
+    label: "Chest pain"
+    base_tier: urgent
+    department: "Cardiology / Emergency"
+  shortness_of_breath:
+    label: "Shortness of breath"
+    base_tier: urgent
+    department: "Emergency"
+  fever:
+    label: "Fever"
+    base_tier: standard
+    department: "General medicine"
+  abdominal_pain:
+    label: "Abdominal pain"
+    base_tier: standard
+    department: "General surgery OPD"
+  minor_injury:
+    label: "Minor injury / sprain"
+    base_tier: nonurgent
+    department: "Orthopedics"
+
+escalation:
+  emergency_requires_human_review: true
+  unrecognized_complaint_requires_human_review: true
+  standard_or_nonurgent_random_audit_rate: 0.10
