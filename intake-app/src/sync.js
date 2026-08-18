@@ -12,7 +12,7 @@
 
 import { LocalStore } from "./db.js";
 
-const SYNC_ENDPOINT = null; // set to e.g. "https://hospital-server.local/api/cases" when server exists
+const SYNC_ENDPOINT = "http://localhost:5000/api/cases";
 
 export const SyncStatus = {
   listeners: new Set(),
@@ -34,7 +34,9 @@ async function pushOne(caseRecord) {
   if (!SYNC_ENDPOINT) throw new Error("no sync endpoint configured");
   const res = await fetch(SYNC_ENDPOINT, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json" ,
+      "X-Station-Key": "dev-key"
+    },
     body: JSON.stringify(caseRecord),
   });
   if (!res.ok) throw new Error("sync push failed: " + res.status);

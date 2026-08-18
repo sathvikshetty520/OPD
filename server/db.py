@@ -1,0 +1,115 @@
+"""
+Central SQLite store for synced triage cases.
+
+This is intentionally simple (SQLite, single file) — the point of this
+server is to reconcile cases across intake stations, not to be a
+high-throughput system. A hospital OPD's case volume does not need
+anything heavier than this.
+"""
+
+import sqlite3
+import json
+from pathlib import Path
+from contextlib import contextmanager
+
+DB_PATH = Path(__file__).parent / "data" / "cases.db"
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS cases (
+    case_id TEXT PRIMARY KEY,
+    patient_token TEXT NOT NULL,
+    tier TEXT NOT NULL,
+    tier_label TEXT,
+    department TEXT,
+    matched_rules TEXT,        -- JSON array, stored as text
+    escalate INTEGER,
+    escalate_reason TEXT,
+    protocol_version TEXT,
+    timestamp TEXT NOT NULL,
+    status TEXT,
+    reviewed_at TEXT,
+    reviewed_by TEXT,
+    station_id TEXT,
+    received_at TEXT NOT NULL  -- when the server first saw this case
+);
+CREATE INDEX IF NOT EXISTS idx_status ON cases(status);
+CREATE INDEX IF NOT EXISTS idx_timestamp ON cases(timestamp);
+"""
+
+
+def init_db():
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with get_conn() as conn:
+        conn.executescript(SCHEMA)
+
+
+@contextmanager
+def get_conn():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        yield conn
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def upsert_case(case: dict, station_id: str, received_at: str):
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO cases (case_id, patient_token, tier, tier_label, department,
+                matched_rules, escalate, escalate_reason, protocol_version,
+                timestamp, status, station_id, received_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(case_id) DO UPDATE SET
+                status=excluded.status,
+                tier=excluded.tier,
+                tier_label=excluded.tier_label,
+                department=excluded.department
+            """,
+            (
+                case["case_id"], case["patient_token"], case["tier"],
+                case.get("tier_label"), case.get("department"),
+                json.dumps(case.get("matched_rules", [])),
+                int(bool(case.get("escalate"))), case.get("escalate_reason"),
+                case.get("protocol_version"), case["timestamp"],
+                case.get("status"), station_id, received_at,
+            ),
+        )
+
+
+def patch_case(case_id: str, patch: dict):
+    with get_conn() as conn:
+        existing = conn.execute("SELECT * FROM cases WHERE case_id=?", (case_id,)).fetchone()
+        if not existing:
+            return None
+        fields = []
+        values = []
+        for key in ("status", "reviewed_at", "reviewed_by"):
+            if key in patch:
+                fields.append(f"{key}=?")
+                values.append(patch[key])
+        if fields:
+            values.append(case_id)
+            conn.execute(f"UPDATE cases SET {', '.join(fields)} WHERE case_id=?", values)
+        return conn.execute("SELECT * FROM cases WHERE case_id=?", (case_id,)).fetchone()
+
+
+def list_cases(since_date: str | None = None):
+    with get_conn() as conn:
+        if since_date:
+            rows = conn.execute(
+                "SELECT * FROM cases WHERE date(timestamp) >= date(?) ORDER BY timestamp DESC",
+                (since_date,),
+            ).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM cases ORDER BY timestamp DESC LIMIT 200").fetchall()
+        return [row_to_dict(r) for r in rows]
+
+
+def row_to_dict(row: sqlite3.Row) -> dict:
+    d = dict(row)
+    d["matched_rules"] = json.loads(d["matched_rules"] or "[]")
+    d["escalate"] = bool(d["escalate"])
+    return d
