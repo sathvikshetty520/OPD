@@ -1,57 +1,95 @@
 # OPD triage assist — project scaffold
 
-Status: **early prototype**. The `engine/` module is real, tested, working code.
-Everything else is scaffolded structure, not yet built.
+Status: **early prototype, end-to-end working locally**. Engine, intake-app,
+staff-dashboard, and server are all implemented and wired together. Not yet
+clinically reviewed or deployment-ready — see "Before any real deployment"
+below.
 
 ## What's actually implemented
 
-- `protocol/rules.yaml` — the triage rules (tiers, red flags, complaint -> department
-  routing). This is the single source of truth. **Not clinically reviewed yet** —
-  see `status: draft` in the file itself.
-- `engine/triage_engine.py` — loads rules.yaml, scores a structured intake into a
-  tier + department + list of matched rule IDs. Pure logic, no UI, no LLM calls.
-  Unrecognized complaints always route to human review rather than guessing.
-- `engine/audit.py` — append-only local JSONL audit log. Local-first so it works
-  offline; a sync process would tail this file when connectivity returns.
-- `engine/tests/test_triage_engine.py` — pins every red flag and routing rule to a
-  concrete test case, so a future rules.yaml edit that silently breaks a red flag
-  gets caught.
+- `protocol/rules.yaml` — the triage rules (tiers, red flags, complaint ->
+  department routing). Single source of truth. **Not clinically reviewed
+  yet** — see `status: draft` in the file itself.
+- `engine/triage_engine.py` — loads rules.yaml, scores a structured intake
+  into a tier + department + list of matched rule IDs. Pure logic, no UI, no
+  LLM calls. Unrecognized complaints always route to human review rather
+  than guessing.
+- `engine/audit.py` — append-only local JSONL audit log.
+- `engine/tests/test_triage_engine.py` — pins every red flag and routing
+  rule to a concrete test case.
+- `intake-app/` — offline-first front-desk client. IndexedDB local storage
+  (`src/db.js`), a JS port of the triage engine (`src/engine.js`), and a
+  sync layer (`src/sync.js`) that now pushes to the real server. No
+  framework, no build step. See `intake-app/README.md`.
+- `staff-dashboard/` — escalation queue + all-cases log. Server-first
+  (`src/api-client/client.js`), with a local-IndexedDB fallback
+  (`src/local-fallback.js`) for single-device use or when the server is
+  unreachable. See `staff-dashboard/README.md`.
+- `server/` — Flask + SQLite central store. Endpoints: `POST /api/cases`,
+  `GET /api/cases`, `PATCH /api/cases/<id>`, `GET /api/health`. Simple
+  per-station API key auth via `X-Station-Key` header (see "Auth" below).
 
-Run it:
-```
+## Running everything together
+
+Three terminals, in this order:
+
+**1. Central server**
+
+cd server
+python -m pip install -r requirements.txt
+python app.py
+
+Runs on `http://localhost:5000`. Creates `server/data/cases.db` on first run
+(gitignored — local runtime data, not source).
+
+**2. Static file server for the two web apps**
+
+cd opd-triage
+python -m http.server 8000
+
+
+**3. Open in browser**
+- `http://localhost:8000/intake-app/`
+- `http://localhost:8000/staff-dashboard/`
+
+Both apps are hardcoded to talk to `http://localhost:5000` right now — see
+"Auth" below before deploying anywhere beyond your own machine.
+
+## Auth (current state — minimal, not production-ready)
+
+The server checks an `X-Station-Key` header against a fixed set of keys set
+via the `STATION_KEYS` environment variable (defaults to `default:dev-key`
+if unset). Both `intake-app/src/sync.js` and
+`staff-dashboard/src/api-client/client.js` currently send `"dev-key"`
+hardcoded. This is a placeholder, not real staff identity/login — every
+station shares one key, and there's no per-user audit trail on the server
+side yet. Needs real auth before any real deployment.
+
+## Engine tests
+
 cd engine
-pip install -r requirements.txt
-pytest tests/
-python triage_engine.py   # runs one demo case, prints the audit record
-```
+python -m pip install -r requirements.txt
+python -m pytest tests\
 
-## What's scaffolded but not built
-
-- `intake-app/` — **implemented.** Offline-first front-desk client: IndexedDB local
-  storage (`src/db.js`), a JS port of the triage engine (`src/engine.js`), and a
-  best-effort sync layer (`src/sync.js`) that queues locally until a real server
-  exists. No framework, no build step — see `intake-app/README.md` for how to run
-  it. Not yet wired to a real server (`/server` is still empty) or to any auth.
-- `staff-dashboard/` — **implemented.** Escalation queue + all-cases log, server-first
-  with a local-IndexedDB fallback (`src/api-client/client.js`, `src/local-fallback.js`).
-  Works today for single-device testing; needs `/server` before it works across multiple
-  front-desk stations. See `staff-dashboard/README.md`.
-- `server/` — sync endpoint, central audit store, auth. Only needed once multiple
-  intake stations need to reconcile with each other and with a central record.
-  Not built yet — both `intake-app` and `staff-dashboard` are already written
-  against the endpoint this should expose.
-- `docs/architecture.md` — not written yet.
 
 ## Why this shape
 
-`engine/` has zero UI dependencies on purpose — the same scoring logic should serve
-a front-desk kiosk, a future SMS-based intake, or a phone triage line without
-duplicating rule logic anywhere. `protocol/rules.yaml` is kept out of code entirely
-so a clinician can review and version it without touching software.
+`engine/` has zero UI dependencies on purpose — the same scoring logic
+should serve a front-desk kiosk, a future SMS-based intake, or a phone
+triage line without duplicating rule logic anywhere. `protocol/rules.yaml`
+is kept out of code entirely so a clinician can review and version it
+without touching software. `server/` exists purely to reconcile cases
+across multiple intake stations — a single-station setup can run entirely
+without it (see each app's local-fallback behavior).
 
 ## Before any real deployment
 
-1. Clinical sign-off on `protocol/rules.yaml` (see `open items` in the docx protocol
-   draft) — nothing here should touch a real patient until that happens.
-2. Real local-first storage in `intake-app/` (this scaffold has none yet).
-3. Staff identity/auth before any override or review action is trusted.
+1. Clinical sign-off on `protocol/rules.yaml` (see "open items" in the
+   protocol draft doc) — nothing here should touch a real patient until
+   this happens.
+2. Real staff auth on the server (replace the shared `X-Station-Key`
+   placeholder with per-user login and per-review audit trail).
+3. Move off the Flask dev server (`python app.py`) to a production WSGI
+   server before any non-local deployment — the console warning about this
+   on startup is not just boilerplate.
+4. `docs/architecture.md` is not written yet.
