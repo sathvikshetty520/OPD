@@ -113,3 +113,64 @@ def row_to_dict(row: sqlite3.Row) -> dict:
     d["matched_rules"] = json.loads(d["matched_rules"] or "[]")
     d["escalate"] = bool(d["escalate"])
     return d
+
+# Add to SCHEMA string, alongside the existing `cases` table:
+SCHEMA_USERS = """
+CREATE TABLE IF NOT EXISTS users (
+    username TEXT PRIMARY KEY,
+    password_hash TEXT NOT NULL,
+    display_name TEXT,
+    role TEXT DEFAULT 'staff',
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sessions (
+    token TEXT PRIMARY KEY,
+    username TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL
+);
+"""
+
+# In init_db(), execute both schemas:
+def init_db():
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with get_conn() as conn:
+        conn.executescript(SCHEMA)
+        conn.executescript(SCHEMA_USERS)
+
+
+# New functions -- add anywhere below the existing ones:
+
+def create_user(username: str, password_hash: str, display_name: str, role: str = "staff"):
+    import datetime
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO users (username, password_hash, display_name, role, created_at) VALUES (?, ?, ?, ?, ?)",
+            (username, password_hash, display_name, role, datetime.datetime.now(datetime.timezone.utc).isoformat()),
+        )
+
+
+def get_user(username: str):
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
+        return dict(row) if row else None
+
+
+def create_session(token: str, username: str, expires_at: str):
+    import datetime
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO sessions (token, username, created_at, expires_at) VALUES (?, ?, ?, ?)",
+            (token, username, datetime.datetime.now(datetime.timezone.utc).isoformat(), expires_at),
+        )
+
+
+def get_session(token: str):
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM sessions WHERE token=?", (token,)).fetchone()
+        return dict(row) if row else None
+
+
+def delete_session(token: str):
+    with get_conn() as conn:
+        conn.execute("DELETE FROM sessions WHERE token=?", (token,))

@@ -2,14 +2,20 @@
 Sync endpoint + central audit store.
 
 Endpoints match what intake-app/src/sync.js and staff-dashboard/src/api-client/client.js
-already expect:
-  POST   /api/cases          -- a station pushes a new/updated case
+expect:
+  POST   /api/cases              -- a station pushes a new/updated case
   GET    /api/cases?since=today  -- dashboard fetches current cases
-  PATCH  /api/cases/<id>      -- staff review outcome
+  PATCH  /api/cases/<id>         -- staff review outcome (requires staff login)
+  POST   /api/auth/login         -- staff login, returns a session token
+  POST   /api/auth/logout        -- invalidate a session token
+  GET    /api/health             -- health check
 
-Auth: a simple per-station API key header (X-Station-Key). This is a
-minimum-viable stand-in -- NOT how staff identity/login should work long
-term (see README's "known gaps").
+Two separate auth mechanisms:
+  - Station key (X-Station-Key header): proves a device is a legitimate
+    intake/dashboard station. Used for POST/GET /api/cases.
+  - Staff session token (Authorization: Bearer <token>): proves a specific
+    logged-in staff member. Used for PATCH /api/cases/<id> so review actions
+    are attributable to a real person, not just "some station."
 """
 
 import datetime
@@ -18,9 +24,10 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 
 import db
+import auth
 
 app = Flask(__name__)
-CORS(app)  # allow intake-app/staff-dashboard (different origin) to call this
+CORS(app)
 
 db.init_db()
 
@@ -32,11 +39,23 @@ STATION_KEYS = dict(
 
 
 def authenticate(req) -> str | None:
+    """Station-level auth. Returns station_id if the X-Station-Key header is valid."""
     key = req.headers.get("X-Station-Key")
     for station_id, valid_key in STATION_KEYS.items():
         if key == valid_key:
             return station_id
     return None
+
+
+def authenticate_staff(req) -> str | None:
+    """Staff-level auth. Returns username if Authorization: Bearer <token> is a valid, unexpired session."""
+    token = req.headers.get("Authorization", "").replace("Bearer ", "")
+    if not token:
+        return None
+    session = db.get_session(token)
+    if not session or auth.is_expired(session["expires_at"]):
+        return None
+    return session["username"]
 
 
 @app.route("/api/cases", methods=["POST"])
@@ -71,15 +90,43 @@ def get_cases():
 
 @app.route("/api/cases/<case_id>", methods=["PATCH"])
 def update_case(case_id):
-    station_id = authenticate(request)
-    if not station_id:
-        return jsonify({"error": "unauthorized"}), 401
+    username = authenticate_staff(request)
+    if not username:
+        return jsonify({"error": "staff login required"}), 401
 
     patch = request.get_json(force=True)
+    patch["reviewed_by"] = username  # server sets this, not trusted from client
     updated = db.patch_case(case_id, patch)
     if updated is None:
         return jsonify({"error": "case not found"}), 404
     return jsonify(db.row_to_dict(updated))
+
+
+@app.route("/api/auth/login", methods=["POST"])
+def login():
+    body = request.get_json(force=True)
+    username = body.get("username")
+    password = body.get("password")
+    user = db.get_user(username) if username else None
+
+    if not user or not auth.verify_password(password, user["password_hash"]):
+        return jsonify({"error": "invalid credentials"}), 401
+
+    token = auth.new_token()
+    db.create_session(token, username, auth.session_expiry())
+    return jsonify({
+        "token": token,
+        "username": username,
+        "display_name": user["display_name"],
+    })
+
+
+@app.route("/api/auth/logout", methods=["POST"])
+def logout():
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    if token:
+        db.delete_session(token)
+    return jsonify({"ok": True})
 
 
 @app.route("/api/health", methods=["GET"])

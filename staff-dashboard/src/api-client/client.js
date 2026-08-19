@@ -1,24 +1,71 @@
 /**
  * API client for the staff dashboard.
  *
- * The real source of truth for a multi-station hospital is the central
- * server (see /server in the repo root) -- it's what reconciles cases from
- * every intake station. This client talks to that server, and falls back
- * gracefully if it's unreachable (mirrors the pattern in intake-app/src/sync.js).
+ * Fetching cases uses the station key (any dashboard on a legitimate
+ * station device can view the queue). Submitting a review outcome
+ * (confirm/downgrade) requires a logged-in staff session token instead --
+ * that's what makes reviewed_by meaningful in the audit trail.
  *
- * Until the server has real staff auth, the dashboard falls back to reading
- * this browser's own local IndexedDB store (see local-fallback.js) -- useful
- * for a single front-desk-plus-dashboard setup on one device, or for testing,
- * but it is NOT a substitute for the real multi-station sync.
+ * Falls back to reading this browser's local IndexedDB store
+ * (see local-fallback.js) if the server is unreachable -- useful for a
+ * single front-desk-plus-dashboard setup or testing, not a substitute for
+ * real multi-station sync.
  */
 
 const SERVER_ENDPOINT = "http://localhost:5000/api/cases";
+const AUTH_ENDPOINT = "http://localhost:5000/api/auth";
 const STATION_KEY = "dev-key"; // must match a key in the server's STATION_KEYS env var
 
-const AUTH_HEADERS = {
+const STATION_HEADERS = {
   "Content-Type": "application/json",
   "X-Station-Key": STATION_KEY,
 };
+
+const TOKEN_STORAGE_KEY = "opd_staff_session";
+
+export function getStoredSession() {
+  const raw = localStorage.getItem(TOKEN_STORAGE_KEY);
+  return raw ? JSON.parse(raw) : null;
+}
+
+function storeSession(session) {
+  localStorage.setItem(TOKEN_STORAGE_KEY, JSON.stringify(session));
+}
+
+export function clearSession() {
+  localStorage.removeItem(TOKEN_STORAGE_KEY);
+}
+
+export async function login(username, password) {
+  try {
+    const res = await fetch(`${AUTH_ENDPOINT}/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    });
+    if (!res.ok) return { ok: false };
+    const data = await res.json();
+    storeSession(data); // { token, username, display_name }
+    return { ok: true, ...data };
+  } catch (e) {
+    return { ok: false, reason: "unreachable" };
+  }
+}
+
+export async function logout() {
+  const session = getStoredSession();
+  if (session?.token) {
+    try {
+      await fetch(`${AUTH_ENDPOINT}/logout`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${session.token}` },
+      });
+    } catch (e) {
+      // best-effort -- clear local session regardless
+    }
+  }
+  clearSession();
+}
 
 export async function fetchCasesFromServer() {
   if (!SERVER_ENDPOINT) {
@@ -26,7 +73,7 @@ export async function fetchCasesFromServer() {
   }
   try {
     const res = await fetch(`${SERVER_ENDPOINT}?since=today`, {
-      headers: AUTH_HEADERS,
+      headers: STATION_HEADERS,
     });
     if (!res.ok) return { ok: false, reason: `server_error_${res.status}`, cases: [] };
     const cases = await res.json();
@@ -37,15 +84,23 @@ export async function fetchCasesFromServer() {
 }
 
 export async function pushReviewOutcome(caseId, patch) {
-  if (!SERVER_ENDPOINT) {
-    return { ok: false, reason: "no_server_configured" };
+  const session = getStoredSession();
+  if (!session?.token) {
+    return { ok: false, reason: "not_logged_in" };
   }
   try {
     const res = await fetch(`${SERVER_ENDPOINT}/${caseId}`, {
       method: "PATCH",
-      headers: AUTH_HEADERS,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.token}`,
+      },
       body: JSON.stringify(patch),
     });
+    if (res.status === 401) {
+      clearSession(); // token expired or invalid -- force re-login
+      return { ok: false, reason: "session_expired" };
+    }
     return { ok: res.ok };
   } catch (e) {
     return { ok: false, reason: "unreachable" };
