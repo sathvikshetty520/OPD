@@ -32,7 +32,6 @@ function openDB() {
 }
 
 export const LocalStore = {
-  /** Save a case record locally AND queue it for sync. Always succeeds offline. */
   async saveCase(caseRecord) {
     const db = await openDB();
     return new Promise((resolve, reject) => {
@@ -44,7 +43,6 @@ export const LocalStore = {
     });
   },
 
-  /** Update an existing case (e.g. staff review outcome) -- also re-queues for sync. */
   async updateCase(caseId, patch) {
     const db = await openDB();
     return new Promise((resolve, reject) => {
@@ -84,6 +82,12 @@ export const LocalStore = {
   },
 
   async clearFromOutbox(caseId) {
-    return withStore(OUTBOX_STORE, "readwrite", (store) => store.delete(caseId));
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(OUTBOX_STORE, "readwrite");
+      tx.objectStore(OUTBOX_STORE).delete(caseId);
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => reject(tx.error);
+    });
   },
 };
