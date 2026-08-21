@@ -1,6 +1,6 @@
 import { LocalStore } from "./db.js";
 import { loadRules, score } from "./engine.js";
-import { SyncStatus, startAutoSync } from "./sync.js";
+import { SyncStatus, startAutoSync, pullStatusUpdates } from "./sync.js";
 
 const state = { rules: null, selectedFlags: new Set() };
 
@@ -11,6 +11,14 @@ async function init() {
   await renderCaseHistory();
   startAutoSync();
   SyncStatus.subscribe(renderSyncStatus);
+
+  // Periodically pull status updates from the server (e.g. staff review
+  // outcomes) and re-render, so front-desk can see review status without
+  // needing to check staff-dashboard themselves.
+  setInterval(async () => {
+    await pullStatusUpdates();
+    await renderCaseHistory();
+  }, 15000);
 
   document.getElementById("submit").addEventListener("click", onSubmit);
   window.addEventListener("online", () => renderSyncStatus(SyncStatus.current));
@@ -77,15 +85,21 @@ async function renderCaseHistory() {
   }
   list.innerHTML = cases
     .slice(0, 20)
-    .map(
-      (c) => `
+    .map((c) => {
+      let statusLabel;
+      if (c.status === "pending_review") statusLabel = "awaiting staff review";
+      else if (c.status === "confirmed") statusLabel = `confirmed${c.reviewed_by ? " by " + c.reviewed_by : ""}`;
+      else if (c.status === "downgraded") statusLabel = `downgraded${c.reviewed_by ? " by " + c.reviewed_by : ""}`;
+      else statusLabel = "routed";
+
+      return `
       <div class="case-row">
         <span class="badge tier-${c.tier}">${c.tier_label}</span>
         <span class="token">${c.patient_token}</span>
         <span class="dept">${c.department}</span>
-        <span class="status">${c.status === "pending_review" ? "awaiting staff review" : "routed"}</span>
-      </div>`
-    )
+        <span class="status">${statusLabel}</span>
+      </div>`;
+    })
     .join("");
 }
 

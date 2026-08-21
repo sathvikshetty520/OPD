@@ -90,4 +90,26 @@ export const LocalStore = {
       tx.onerror = () => reject(tx.error);
     });
   },
+
+    /**
+   * Apply a status update that came FROM the server (a staff review outcome).
+   * Unlike updateCase, this does NOT re-queue the record for outbound sync --
+   * it's incoming data, not a new local change to push.
+   */
+  async applyRemoteStatus(caseId, patch) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(CASES_STORE, "readwrite");
+      const store = tx.objectStore(CASES_STORE);
+      const getReq = store.get(caseId);
+      getReq.onsuccess = () => {
+        const existing = getReq.result;
+        if (!existing) return resolve(null);
+        const updated = { ...existing, ...patch };
+        store.put(updated);
+        tx.oncomplete = () => resolve(updated);
+      };
+      getReq.onerror = () => reject(getReq.error);
+    });
+  },
 };

@@ -1,18 +1,23 @@
 /**
- * Best-effort sync of the local outbox to a central server.
+ * Sync layer: pushes locally-saved cases to the server (best-effort), and
+ * separately pulls back status updates for cases this device already knows
+ * about -- so front-desk staff can see when a case has been reviewed,
+ * without needing to check staff-dashboard themselves.
  *
- * Contract: sync NEVER blocks or fails the local recording of a case. It is
- * purely additive -- if it can't reach the server, cases simply stay queued
- * in IndexedDB's sync_outbox store until the next attempt succeeds.
- *
- * No server is implemented yet (see /server in the repo root) -- this module
- * is wired to fail gracefully against that gap so the rest of the app can be
- * built and tested now, and pointed at a real endpoint later.
+ * Contract: neither direction ever blocks or fails the local save. Both are
+ * purely additive on top of IndexedDB, which remains the source of truth
+ * for this device when offline.
  */
 
 import { LocalStore } from "./db.js";
 
 const SYNC_ENDPOINT = "http://localhost:5000/api/cases";
+const STATION_KEY = "dev-key"; // must match a key in the server's STATION_KEYS env var
+
+const STATION_HEADERS = {
+  "Content-Type": "application/json",
+  "X-Station-Key": STATION_KEY,
+};
 
 export const SyncStatus = {
   listeners: new Set(),
@@ -34,15 +39,13 @@ async function pushOne(caseRecord) {
   if (!SYNC_ENDPOINT) throw new Error("no sync endpoint configured");
   const res = await fetch(SYNC_ENDPOINT, {
     method: "POST",
-    headers: { "Content-Type": "application/json" ,
-      "X-Station-Key": "dev-key"
-    },
+    headers: STATION_HEADERS,
     body: JSON.stringify(caseRecord),
   });
   if (!res.ok) throw new Error("sync push failed: " + res.status);
 }
 
-/** Attempt to flush the outbox. Safe to call repeatedly (e.g. on an interval or online event). */
+/** Attempt to flush the outbox (local -> server). */
 export async function trySync() {
   const outbox = await LocalStore.getOutbox();
   SyncStatus.update({ pendingCount: outbox.length });
@@ -65,8 +68,7 @@ export async function trySync() {
       await LocalStore.clearFromOutbox(record.case_id);
       succeeded++;
     } catch (e) {
-      // Stop on first failure -- leave remaining records queued, retry later.
-      break;
+      break; // stop on first failure, leave remaining queued, retry later
     }
   }
 
@@ -78,8 +80,49 @@ export async function trySync() {
   });
 }
 
+/**
+ * Pull status updates (server -> local). For every case this device has
+ * locally, check if the server's status/reviewed_by differs, and if so,
+ * update the local copy so the UI reflects it.
+ */
+export async function pullStatusUpdates() {
+  if (!SYNC_ENDPOINT || !navigator.onLine) return;
+
+  let serverCases;
+  try {
+    const res = await fetch(SYNC_ENDPOINT, { headers: STATION_HEADERS });
+    if (!res.ok) return;
+    serverCases = await res.json();
+  } catch (e) {
+    return; // best-effort, silently skip this cycle
+  }
+
+  const serverByCaseId = new Map(serverCases.map((c) => [c.case_id, c]));
+  const localCases = await LocalStore.getAllCases();
+
+  for (const local of localCases) {
+    const remote = serverByCaseId.get(local.case_id);
+    if (!remote) continue;
+    const changed = remote.status !== local.status || remote.reviewed_by !== local.reviewed_by;
+    if (changed) {
+      await LocalStore.applyRemoteStatus(local.case_id, {
+        status: remote.status,
+        reviewed_by: remote.reviewed_by,
+        reviewed_at: remote.reviewed_at,
+      });
+    }
+  }
+}
+
 export function startAutoSync(intervalMs = 15000) {
   trySync();
-  window.addEventListener("online", trySync);
-  return setInterval(trySync, intervalMs);
+  pullStatusUpdates();
+  window.addEventListener("online", () => {
+    trySync();
+    pullStatusUpdates();
+  });
+  return setInterval(() => {
+    trySync();
+    pullStatusUpdates();
+  }, intervalMs);
 }
