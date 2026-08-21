@@ -1,9 +1,9 @@
 # OPD triage assist — project scaffold
 
 Status: **early prototype, working end-to-end locally**. Engine, intake-app,
-staff-dashboard, and server (with staff auth) are all implemented and wired
-together. Not yet clinically reviewed or deployment-ready — see "Before any
-real deployment" below.
+staff-dashboard, and server (with staff auth and two-way status sync) are
+all implemented and tested together. Not yet clinically reviewed or
+deployment-ready — see "Before any real deployment" below.
 
 ## What's actually implemented
 
@@ -19,19 +19,22 @@ real deployment" below.
 - `engine/tests/test_triage_engine.py` — pins every red flag and routing
   rule to a concrete test case.
 
-- `intake-app/` — offline-first front-desk client. Every case is saved to
-  IndexedDB immediately (`src/db.js`) with zero network dependency. Runs the
-  same rule logic client-side (`src/engine.js`, JS port of the Python
-  engine). `src/sync.js` pushes queued cases to the server in the
-  background, authenticated with a station key, without ever blocking the
-  local save. No framework, no build step.
+- `intake-app/` — offline-first front-desk client.
+  - `src/db.js` — IndexedDB local storage. Every case saves here first, with
+    zero network dependency.
+  - `src/engine.js` — JS port of the Python triage engine, same rules source.
+  - `src/sync.js` — two-way sync with the server:
+    - **push**: queues locally-saved cases and pushes them to the server
+      (station-key authenticated), retrying on the next cycle if offline.
+    - **pull**: periodically checks the server for status updates on cases
+      this device already knows about, so front-desk can see "confirmed by
+      nurse1" / "downgraded" without needing to check staff-dashboard.
+  - No framework, no build step.
 
 - `staff-dashboard/` — escalation queue + all-cases log. Fetches from the
   server (station-key authenticated) with a local-IndexedDB fallback for
   single-device use. Review actions (confirm/downgrade) require a logged-in
-  staff session (see Auth below). **No login form UI yet** — the backend
-  supports staff login, but nothing in the dashboard currently calls it, so
-  review actions will fail until that UI is added.
+  staff session (see Auth below) and are recorded with `reviewed_by`.
 
 - `server/` — Flask + SQLite central store.
   - `POST /api/cases`, `GET /api/cases` — station-key authenticated
@@ -65,6 +68,16 @@ python -m http.server 8000
 - `http://localhost:8000/intake-app/`
 - `http://localhost:8000/staff-dashboard/`
 
+## Testing the full loop
+
+1. In intake-app: submit a case with a red flag checked. Status bar should
+   say "Synced just now."
+2. In staff-dashboard: refresh, find the case in the Escalation queue, sign
+   in if prompted, click "Confirm emergency" or "Downgrade."
+3. Back in intake-app: wait ~15s (or refresh) — the case's status in "Cases
+   recorded on this device" should update to reflect the review outcome and
+   who reviewed it.
+
 ## Auth (two separate layers)
 
 - **Station key** (`X-Station-Key` header) — proves a device is a
@@ -76,9 +89,8 @@ python -m http.server 8000
   before real deployment.
 - **Staff session** (`Authorization: Bearer <token>`) — proves a specific
   logged-in person. Required only for `PATCH /api/cases/<id>` (confirming
-  or downgrading a case), so every review action is attributable to a named
-  staff member, not just "some station." Obtained via `POST
-  /api/auth/login`. Sessions expire after 12 hours.
+  or downgrading a case). Obtained via `POST /api/auth/login`. Sessions
+  expire after 12 hours.
 
 ## Engine tests
 
@@ -93,17 +105,19 @@ python -m pytest tests\
 should serve a front-desk kiosk, a future SMS-based intake, or a phone
 triage line without duplicating rule logic anywhere. `protocol/rules.yaml`
 is kept out of code entirely so a clinician can review and version it
-without touching software. `server/` exists purely to reconcile cases
-across multiple intake stations — a single-station setup can run entirely
-without it, falling back to local IndexedDB.
+without touching software. `server/` exists purely to reconcile cases and
+review outcomes across multiple intake stations — a single-station setup
+can run entirely without it, falling back to local IndexedDB.
 
-## Before any real deployment
+## Known gaps / before any real deployment
 
 1. Clinical sign-off on `protocol/rules.yaml` — nothing here should touch a
    real patient until this happens.
-2. Build the staff login UI in `staff-dashboard/` (backend is ready, no
-   form exists yet).
-3. Move station keys and staff credentials off hardcoded/dev defaults.
+2. Station keys and staff credentials are hardcoded dev defaults — move to
+   real per-station config before deployment.
+3. `GET /api/cases` defaults to `since=today` — a shift crossing midnight
+   currently won't see earlier pending cases in the dashboard's default
+   view. Worth revisiting the cutoff logic.
 4. Move off the Flask dev server (`python app.py`) to a production WSGI
    server before any non-local deployment.
 5. Handle multi-station conflicts (two stations offline simultaneously,
