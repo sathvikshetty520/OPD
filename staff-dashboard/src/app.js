@@ -1,7 +1,52 @@
-import { fetchCasesFromServer, pushReviewOutcome } from "./api-client/client.js";
+import { fetchCasesFromServer, pushReviewOutcome, login, logout, getStoredSession } from "./api-client/client.js";
 import { fetchCasesFromLocalDevice, updateCaseOnLocalDevice } from "./local-fallback.js";
 
-const state = { cases: [], source: "unknown", activeTab: "queue" };
+const state = { cases: [], source: "unknown" };
+
+function showLoginScreen() {
+  document.getElementById("loginScreen").style.display = "flex";
+  document.getElementById("mainScreen").style.display = "none";
+}
+
+function showMainScreen() {
+  const session = getStoredSession();
+  document.getElementById("loginScreen").style.display = "none";
+  document.getElementById("mainScreen").style.display = "block";
+  document.getElementById("whoami").textContent = session ? `Signed in as ${session.display_name}` : "";
+}
+
+async function onLogin() {
+  const username = document.getElementById("username").value.trim();
+  const password = document.getElementById("password").value;
+  const msg = document.getElementById("loginMsg");
+
+  if (!username || !password) {
+    msg.textContent = "Enter both username and password.";
+    msg.className = "msg error";
+    return;
+  }
+
+  msg.textContent = "Signing in…";
+  msg.className = "msg";
+
+  const result = await login(username, password);
+  if (!result.ok) {
+    msg.textContent = result.reason === "unreachable"
+      ? "Can't reach the server. Check it's running."
+      : "Invalid username or password.";
+    msg.className = "msg error";
+    return;
+  }
+
+  document.getElementById("password").value = "";
+  showMainScreen();
+  loadCases();
+}
+
+async function onLogout() {
+  await logout();
+  showLoginScreen();
+}
 
 async function loadCases() {
   const serverResult = await fetchCasesFromServer();
@@ -19,7 +64,15 @@ async function resolveCase(caseId, outcome) {
   const patch = { status: outcome, reviewed_at: new Date().toISOString() };
 
   if (state.source === "server") {
-    await pushReviewOutcome(caseId, patch);
+    const result = await pushReviewOutcome(caseId, patch);
+    if (!result.ok) {
+      if (result.reason === "session_expired" || result.reason === "not_logged_in") {
+        showLoginScreen();
+        return;
+      }
+      alert("Couldn't save review outcome: " + (result.reason || "unknown error"));
+      return;
+    }
   } else {
     await updateCaseOnLocalDevice(caseId, patch);
   }
@@ -44,7 +97,7 @@ function caseCard(c, showActions) {
           <span class="token">${c.patient_token}</span>
           <div class="meta">${c.department} &middot; ${timeAgo(c.timestamp)}</div>
         </div>
-        <div class="meta">${(c.status || "").replace("_", " ")}</div>
+        <div class="meta">${(c.status || "").replace("_", " ")}${c.reviewed_by ? " by " + c.reviewed_by : ""}</div>
       </div>
       <div class="log">${rules}</div>
       ${showActions ? `
@@ -97,6 +150,21 @@ function initTabs() {
   });
 }
 
+document.getElementById("loginBtn").addEventListener("click", onLogin);
+document.getElementById("password").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") onLogin();
+});
+document.getElementById("logoutBtn").addEventListener("click", onLogout);
+
 initTabs();
+
+// Viewing the queue doesn't require staff login (station key is enough),
+// so show the dashboard immediately, but the login screen is still available
+// via any 401 on a review action.
+if (getStoredSession()) {
+  showMainScreen();
+} else {
+  showMainScreen(); // queue is viewable either way; login only gates review actions
+}
 loadCases();
 setInterval(loadCases, 15000);

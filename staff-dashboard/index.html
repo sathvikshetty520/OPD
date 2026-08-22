@@ -7,22 +7,43 @@
 <link rel="stylesheet" href="src/styles.css">
 </head>
 <body>
-  <h1>OPD triage -- staff dashboard</h1>
-  <div class="sub">Escalation queue and case log. Prefers the central server; falls back to this device's local cases if no server is configured.</div>
-
-  <div class="tabs">
-    <div class="tab active" data-p="queue">Escalation queue</div>
-    <div class="tab" data-p="all">All cases</div>
+  <div id="loginScreen" class="login-screen">
+    <div class="login-card">
+      <h1>Staff sign in</h1>
+      <div class="sub">Sign in to review and act on escalated cases. Viewing the queue doesn't require login, but confirming or downgrading a case does.</div>
+      <label for="username">Username</label>
+      <input id="username" autocomplete="username">
+      <label for="password">Password</label>
+      <input id="password" type="password" autocomplete="current-password">
+      <button class="primary" id="loginBtn">Sign in</button>
+      <div id="loginMsg" class="msg"></div>
+    </div>
   </div>
 
-  <div class="grid" id="stats"></div>
+  <div id="mainScreen" style="display:none">
+    <div class="topbar">
+      <h1>OPD triage -- staff dashboard</h1>
+      <div class="who">
+        <span id="whoami"></span>
+        <button id="logoutBtn">Sign out</button>
+      </div>
+    </div>
+    <div class="sub">Escalation queue and case log. Prefers the central server; falls back to this device's local cases if no server is configured.</div>
 
-  <div class="panel active" id="p-queue"></div>
-  <div class="panel" id="p-all"></div>
+    <div class="tabs">
+      <div class="tab active" data-p="queue">Escalation queue</div>
+      <div class="tab" data-p="all">All cases</div>
+    </div>
 
-  <div class="sync">
-    <span class="dot" id="sourceDot"></span>
-    <span id="sourceStatus">Loading…</span>
+    <div class="grid" id="stats"></div>
+
+    <div class="panel active" id="p-queue"></div>
+    <div class="panel" id="p-all"></div>
+
+    <div class="sync">
+      <span class="dot" id="sourceDot"></span>
+      <span id="sourceStatus">Loading…</span>
+    </div>
   </div>
 
   <script type="module" src="src/app.js"></script>

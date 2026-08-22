@@ -35,3 +35,8 @@ button.primary { background: var(--text); color: #fff; border-color: var(--text)
 .sync { font-size: 11px; color: var(--muted); margin-top: 20px; display: flex; align-items: center; gap: 6px; }
 .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
 .dot.on { background: #639922; }
+.login-screen { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+.login-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 28px; width: 320px; }
+.login-card h1 { font-size: 18px; margin: 0 0 4px; }
+.topbar { display: flex; justify-content: space-between; align-items: center; }
+.who { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); }
