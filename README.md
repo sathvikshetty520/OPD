@@ -2,14 +2,18 @@
 
 Status: **early prototype, working end-to-end locally**. Engine, intake-app,
 staff-dashboard, and server (with staff auth and two-way status sync) are
-all implemented and tested together. Not yet clinically reviewed or
-deployment-ready — see "Before any real deployment" below.
+all implemented and tested together. **Not clinically reviewed — no
+clinician is currently attached to this project.** Nothing here should
+route or triage a real patient until that changes. See "Before any real
+deployment" below.
 
 ## What's actually implemented
 
 - `protocol/rules.yaml` — the triage rules (tiers, red flags, complaint ->
   department routing). Single source of truth for both the Python and JS
-  engines. **Not clinically reviewed yet** — see `status: draft` in the file.
+  engines. **Draft only, not clinically reviewed.** A structured review
+  worksheet exists (see "Clinical review" below) for when a clinician is
+  available.
 
 - `engine/triage_engine.py` — loads rules.yaml, scores a structured intake
   into a tier + department + list of matched rule IDs. Pure logic, no UI, no
@@ -49,7 +53,6 @@ deployment-ready — see "Before any real deployment" below.
 Three terminals, in this order:
 
 **1. Central server**
-
 cd server
 python -m pip install -r requirements.txt
 python create_user.py <username> <password> "<Display Name>" # first time only
@@ -92,6 +95,28 @@ python -m http.server 8000
   or downgrading a case). Obtained via `POST /api/auth/login`. Sessions
   expire after 12 hours.
 
+## Case visibility window
+
+`GET /api/cases?since=today` resolves to a **rolling 48-hour window** on
+the server (not a calendar-day cutoff — a prior version used SQLite's
+`date()` truncation, which silently dropped pending cases across a midnight
+boundary). On top of that window, **any case still `pending_review` is
+always included regardless of age** — an unreviewed escalation never
+disappears from the queue just because it's older than 48 hours. Routine/
+resolved cases roll off after 48 hours as expected.
+
+## Clinical review
+
+`docs/` — a clinical review worksheet was produced covering: missing
+red-flag signs (diabetic emergency, anaphylaxis, seizure, poisoning —
+none currently in rules.yaml), ambiguities in existing rules (standalone
+pain-score trigger, infant fever cutoff, no age field), missing complaint
+categories, and one structural question about complaint-specific vs.
+universal red flags. **No clinician is currently attached to this project
+to complete it.** Once one is available, their answers should be applied
+to `protocol/rules.yaml` and its `status` field updated from `draft` to
+`clinician_reviewed`.
+
 ## Engine tests
 
 cd engine
@@ -111,15 +136,12 @@ can run entirely without it, falling back to local IndexedDB.
 
 ## Known gaps / before any real deployment
 
-1. Clinical sign-off on `protocol/rules.yaml` — nothing here should touch a
-   real patient until this happens.
+1. **No clinical review yet** — the single largest blocker, independent of
+   code quality. See "Clinical review" above.
 2. Station keys and staff credentials are hardcoded dev defaults — move to
    real per-station config before deployment.
-3. `GET /api/cases` defaults to `since=today` — a shift crossing midnight
-   currently won't see earlier pending cases in the dashboard's default
-   view. Worth revisiting the cutoff logic.
-4. Move off the Flask dev server (`python app.py`) to a production WSGI
+3. Move off the Flask dev server (`python app.py`) to a production WSGI
    server before any non-local deployment.
-5. Handle multi-station conflicts (two stations offline simultaneously,
+4. Handle multi-station conflicts (two stations offline simultaneously,
    overlapping patient tokens, syncing later).
-6. `docs/architecture.md` is not written yet.
+5. `docs/architecture.md` is not written yet.
