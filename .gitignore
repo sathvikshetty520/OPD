@@ -1,3 +1,6 @@
 __pycache__/
 *.pyc
 server/data/
+server/.env
+intake-app/src/config.js
+staff-dashboard/src/config.js

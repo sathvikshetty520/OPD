@@ -12,9 +12,9 @@
  * real multi-station sync.
  */
 
-const SERVER_ENDPOINT = "http://localhost:5000/api/cases";
+
 const AUTH_ENDPOINT = "http://localhost:5000/api/auth";
-const STATION_KEY = "dev-key"; // must match a key in the server's STATION_KEYS env var
+import { SERVER_ENDPOINT, STATION_KEY } from "../config.js";
 
 const STATION_HEADERS = {
   "Content-Type": "application/json",

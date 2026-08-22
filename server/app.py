@@ -16,26 +16,36 @@ Two separate auth mechanisms:
   - Staff session token (Authorization: Bearer <token>): proves a specific
     logged-in staff member. Used for PATCH /api/cases/<id> so review actions
     are attributable to a real person, not just "some station."
+
+Secrets (STATION_KEYS, FLASK_SECRET_KEY, FLASK_DEBUG) are read from a local
+.env file (see .env.example for the template) rather than hardcoded here.
+.env itself is gitignored.
 """
 
 import datetime
 import os
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+from dotenv import load_dotenv
 
 import db
 import auth
 
+load_dotenv()  # reads .env in this directory
+
 app = Flask(__name__)
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", "insecure-default-do-not-use-in-production")
 CORS(app)
 
 db.init_db()
 
-# Minimal station auth: a fixed set of allowed keys, set via env var.
+# Station auth: a set of allowed keys, loaded from .env.
 # e.g. STATION_KEYS="frontdesk1:key-abc,frontdesk2:key-def"
 STATION_KEYS = dict(
     pair.split(":") for pair in os.environ.get("STATION_KEYS", "default:dev-key").split(",")
 )
+
+DEBUG_MODE = os.environ.get("FLASK_DEBUG", "false").lower() == "true"
 
 
 def authenticate(req) -> str | None:
@@ -135,4 +145,6 @@ def health():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    if DEBUG_MODE:
+        print("WARNING: running with FLASK_DEBUG=true -- do not use this in any real deployment.")
+    app.run(host="0.0.0.0", port=5000, debug=DEBUG_MODE)
