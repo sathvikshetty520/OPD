@@ -81,10 +81,10 @@ def get_cases():
         return jsonify({"error": "unauthorized"}), 401
 
     since = request.args.get("since")
-    since_date = None
-    if since == "today":
-        since_date = datetime.date.today().isoformat()
-    cases = db.list_cases(since_date)
+    hours = None
+    if since == "today" or since == "recent":
+        hours = 48  # rolling 48-hour window, plus all pending cases regardless of age
+    cases = db.list_cases(hours)
     return jsonify(cases)
 
 

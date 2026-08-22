@@ -9,6 +9,7 @@ anything heavier than this.
 
 import sqlite3
 import json
+import datetime
 from pathlib import Path
 from contextlib import contextmanager
 
@@ -96,16 +97,34 @@ def patch_case(case_id: str, patch: dict):
         return conn.execute("SELECT * FROM cases WHERE case_id=?", (case_id,)).fetchone()
 
 
-def list_cases(since_date: str | None = None):
+def list_cases(hours: int | None = None):
+    """
+    Returns cases from the last `hours` hours (rolling window, not calendar-day
+    truncation), PLUS every case still pending_review regardless of age --
+    an escalated case must never silently disappear from view because a
+    shift crossed midnight.
+    """
     with get_conn() as conn:
-        if since_date:
-            rows = conn.execute(
-                "SELECT * FROM cases WHERE date(timestamp) >= date(?) ORDER BY timestamp DESC",
-                (since_date,),
-            ).fetchall()
-        else:
-            rows = conn.execute("SELECT * FROM cases ORDER BY timestamp DESC LIMIT 200").fetchall()
-        return [row_to_dict(r) for r in rows]
+        rows = conn.execute("SELECT * FROM cases ORDER BY timestamp DESC LIMIT 500").fetchall()
+
+    all_cases = [row_to_dict(r) for r in rows]
+
+    if hours is None:
+        return all_cases
+
+    cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=hours)
+    result = []
+    for c in all_cases:
+        is_recent = _parse_ts(c["timestamp"]) >= cutoff
+        is_pending = c.get("status") == "pending_review"
+        if is_recent or is_pending:
+            result.append(c)
+    return result
+
+
+def _parse_ts(ts: str) -> "datetime.datetime":
+    # timestamps are stored as ISO 8601, e.g. "2026-08-20T12:05:23.233Z"
+    return datetime.datetime.fromisoformat(ts.replace("Z", "+00:00"))
 
 
 def row_to_dict(row: sqlite3.Row) -> dict:
