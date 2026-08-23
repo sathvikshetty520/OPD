@@ -53,12 +53,14 @@ deployment" below.
 Three terminals, in this order:
 
 **0. First time only: set up config files**
+```
 cd server
-copy .env.example .env # edit .env with real values
+copy .env.example .env          # edit .env with real values
 cd ..\intake-app\src
-copy config.example.js config.js # edit config.js, STATION_KEY must match server's .env
-cd ....\staff-dashboard\src
-copy config.example.js config.js # same STATION_KEY as above
+copy config.example.js config.js   # edit config.js, STATION_KEY must match server's .env
+cd ..\..\staff-dashboard\src
+copy config.example.js config.js   # same STATION_KEY as above
+```
 
 **1. Central server**
 cd server
@@ -103,7 +105,7 @@ python -m http.server 8000
   or downgrading a case). Obtained via `POST /api/auth/login`. Sessions
   expire after 12 hours.
 
-  ## Secrets and configuration
+## Secrets and configuration
 
 Station keys and Flask's secret key are no longer hardcoded in source files.
 
