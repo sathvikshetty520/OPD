@@ -105,11 +105,22 @@ def update_case(case_id):
         return jsonify({"error": "staff login required"}), 401
 
     patch = request.get_json(force=True)
-    patch["reviewed_by"] = username  # server sets this, not trusted from client
-    updated = db.patch_case(case_id, patch)
+    expected_status = patch.pop("expected_status", None)
+    patch["reviewed_by"] = username
+
+    updated, conflict = db.patch_case(case_id, patch, expected_status)
+
+    if conflict is not None:
+        return jsonify({
+            "error": "conflict",
+            "message": f"Already reviewed by {conflict.get('reviewed_by', 'someone else')}",
+            "current": conflict,
+        }), 409
+
     if updated is None:
         return jsonify({"error": "case not found"}), 404
-    return jsonify(db.row_to_dict(updated))
+
+    return jsonify(updated)
 
 
 @app.route("/api/auth/login", methods=["POST"])
@@ -148,3 +159,17 @@ if __name__ == "__main__":
     if DEBUG_MODE:
         print("WARNING: running with FLASK_DEBUG=true -- do not use this in any real deployment.")
     app.run(host="0.0.0.0", port=5000, debug=DEBUG_MODE)
+
+@app.route("/api/cases/<case_id>/duplicates", methods=["GET"])
+def get_duplicates(case_id):
+    station_id = authenticate(request)
+    if not station_id:
+        return jsonify({"error": "unauthorized"}), 401
+
+    with db.get_conn() as conn:
+        row = conn.execute("SELECT patient_token FROM cases WHERE case_id=?", (case_id,)).fetchone()
+    if not row:
+        return jsonify({"error": "case not found"}), 404
+
+    dupes = db.find_possible_duplicates(row["patient_token"], case_id)
+    return jsonify(dupes)

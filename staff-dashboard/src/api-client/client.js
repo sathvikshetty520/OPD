@@ -83,7 +83,7 @@ export async function fetchCasesFromServer() {
   }
 }
 
-export async function pushReviewOutcome(caseId, patch) {
+export async function pushReviewOutcome(caseId, patch, expectedStatus) {
   const session = getStoredSession();
   if (!session?.token) {
     return { ok: false, reason: "not_logged_in" };
@@ -95,11 +95,15 @@ export async function pushReviewOutcome(caseId, patch) {
         "Content-Type": "application/json",
         Authorization: `Bearer ${session.token}`,
       },
-      body: JSON.stringify(patch),
+      body: JSON.stringify({ ...patch, expected_status: expectedStatus }),
     });
     if (res.status === 401) {
-      clearSession(); // token expired or invalid -- force re-login
+      clearSession();
       return { ok: false, reason: "session_expired" };
+    }
+    if (res.status === 409) {
+      const body = await res.json();
+      return { ok: false, reason: "conflict", message: body.message, current: body.current };
     }
     return { ok: res.ok };
   } catch (e) {

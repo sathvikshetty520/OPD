@@ -62,12 +62,19 @@ async function loadCases() {
 
 async function resolveCase(caseId, outcome) {
   const patch = { status: outcome, reviewed_at: new Date().toISOString() };
+  const c = state.cases.find((x) => x.case_id === caseId);
+  const expectedStatus = c?.status || "pending_review";
 
   if (state.source === "server") {
-    const result = await pushReviewOutcome(caseId, patch);
+    const result = await pushReviewOutcome(caseId, patch, expectedStatus);
     if (!result.ok) {
       if (result.reason === "session_expired" || result.reason === "not_logged_in") {
         showLoginScreen();
+        return;
+      }
+      if (result.reason === "conflict") {
+        alert(result.message + " -- refreshing the queue.");
+        await loadCases();
         return;
       }
       alert("Couldn't save review outcome: " + (result.reason || "unknown error"));
@@ -77,7 +84,6 @@ async function resolveCase(caseId, outcome) {
     await updateCaseOnLocalDevice(caseId, patch);
   }
 
-  const c = state.cases.find((x) => x.case_id === caseId);
   if (c) Object.assign(c, patch);
   render();
 }

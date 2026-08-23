@@ -80,11 +80,22 @@ def upsert_case(case: dict, station_id: str, received_at: str):
         )
 
 
-def patch_case(case_id: str, patch: dict):
+def patch_case(case_id: str, patch: dict, expected_status: str | None = None):
+    """
+    If expected_status is given, only apply the patch if the case's current
+    status still matches it -- prevents two staff members from silently
+    overwriting each other's review of the same case.
+    Returns (updated_row, conflict) where conflict is the current row if the
+    expected_status check failed, else None.
+    """
     with get_conn() as conn:
         existing = conn.execute("SELECT * FROM cases WHERE case_id=?", (case_id,)).fetchone()
         if not existing:
-            return None
+            return None, None
+
+        if expected_status is not None and existing["status"] != expected_status:
+            return None, row_to_dict(existing)  # conflict: someone else already reviewed it
+
         fields = []
         values = []
         for key in ("status", "reviewed_at", "reviewed_by"):
@@ -94,7 +105,8 @@ def patch_case(case_id: str, patch: dict):
         if fields:
             values.append(case_id)
             conn.execute(f"UPDATE cases SET {', '.join(fields)} WHERE case_id=?", values)
-        return conn.execute("SELECT * FROM cases WHERE case_id=?", (case_id,)).fetchone()
+        updated = conn.execute("SELECT * FROM cases WHERE case_id=?", (case_id,)).fetchone()
+        return row_to_dict(updated), None
 
 
 def list_cases(hours: int | None = None):
@@ -193,3 +205,16 @@ def get_session(token: str):
 def delete_session(token: str):
     with get_conn() as conn:
         conn.execute("DELETE FROM sessions WHERE token=?", (token,))
+
+def find_possible_duplicates(patient_token: str, exclude_case_id: str, window_minutes: int = 60):
+    """
+    Cases with the same patient_token submitted within `window_minutes` of
+    each other from potentially different stations -- surfaced as a warning,
+    never auto-merged, since only a human can confirm it's the same person.
+    """
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM cases WHERE patient_token=? AND case_id != ? ORDER BY timestamp DESC LIMIT 10",
+            (patient_token, exclude_case_id),
+        ).fetchall()
+    return [row_to_dict(r) for r in rows]
