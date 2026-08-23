@@ -52,6 +52,14 @@ deployment" below.
 
 Three terminals, in this order:
 
+**0. First time only: set up config files**
+cd server
+copy .env.example .env # edit .env with real values
+cd ..\intake-app\src
+copy config.example.js config.js # edit config.js, STATION_KEY must match server's .env
+cd ....\staff-dashboard\src
+copy config.example.js config.js # same STATION_KEY as above
+
 **1. Central server**
 cd server
 python -m pip install -r requirements.txt
@@ -94,6 +102,24 @@ python -m http.server 8000
   logged-in person. Required only for `PATCH /api/cases/<id>` (confirming
   or downgrading a case). Obtained via `POST /api/auth/login`. Sessions
   expire after 12 hours.
+
+  ## Secrets and configuration
+
+Station keys and Flask's secret key are no longer hardcoded in source files.
+
+- **Server**: `server/.env` (gitignored) holds `STATION_KEYS`, `FLASK_SECRET_KEY`,
+  and `FLASK_DEBUG`. Copy `server/.env.example` to `server/.env` and fill in
+  real values before running.
+- **intake-app**: `intake-app/src/config.js` (gitignored) holds `SYNC_ENDPOINT`
+  and `STATION_KEY`. Copy `intake-app/src/config.example.js` to
+  `intake-app/src/config.js` and fill in a value matching the server's
+  `STATION_KEYS`.
+- **staff-dashboard**: same pattern — copy
+  `staff-dashboard/src/config.example.js` to `staff-dashboard/src/config.js`.
+
+All three real config files (`.env`, `config.js` in both apps) are gitignored
+and must be created locally after cloning — the repo only ships the
+`.example` templates.
 
 ## Case visibility window
 
