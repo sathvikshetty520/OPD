@@ -40,3 +40,4 @@ button.primary { background: var(--text); color: #fff; border-color: var(--text)
 .login-card h1 { font-size: 18px; margin: 0 0 4px; }
 .topbar { display: flex; justify-content: space-between; align-items: center; }
 .who { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); }
+.dupe-warning { background: var(--warn-bg); color: var(--warn-tx); font-size: 12px; padding: 6px 10px; border-radius: 6px; margin: 8px 0; }

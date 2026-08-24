@@ -110,3 +110,15 @@ export async function pushReviewOutcome(caseId, patch, expectedStatus) {
     return { ok: false, reason: "unreachable" };
   }
 }
+
+export async function fetchDuplicates(caseId) {
+  try {
+    const res = await fetch(`${SERVER_ENDPOINT}/${caseId}/duplicates`, {
+      headers: STATION_HEADERS,
+    });
+    if (!res.ok) return [];
+    return await res.json();
+  } catch (e) {
+    return [];
+  }
+}

@@ -1,4 +1,4 @@
-import { fetchCasesFromServer, pushReviewOutcome, login, logout, getStoredSession } from "./api-client/client.js";
+import { fetchCasesFromServer, pushReviewOutcome, login, logout, getStoredSession, fetchDuplicates } from "./api-client/client.js";
 import { fetchCasesFromLocalDevice, updateCaseOnLocalDevice } from "./local-fallback.js";
 
 const state = { cases: [], source: "unknown" };
@@ -53,11 +53,22 @@ async function loadCases() {
   if (serverResult.ok) {
     state.cases = serverResult.cases;
     state.source = "server";
+    await attachDuplicateWarnings();
   } else {
     state.cases = await fetchCasesFromLocalDevice();
     state.source = "local_device";
   }
   render();
+}
+
+async function attachDuplicateWarnings() {
+  const pending = state.cases.filter((c) => c.status === "pending_review");
+  await Promise.all(
+    pending.map(async (c) => {
+      const dupes = await fetchDuplicates(c.case_id);
+      c.duplicateCount = dupes.length;
+    })
+  );
 }
 
 async function resolveCase(caseId, outcome) {
@@ -95,6 +106,9 @@ function timeAgo(ts) {
 
 function caseCard(c, showActions) {
   const rules = (c.matched_rules || []).map((r) => `<div>${r}</div>`).join("");
+  const dupeWarning = c.duplicateCount > 0
+    ? `<div class="dupe-warning">⚠ ${c.duplicateCount} other case(s) share this patient token -- possible duplicate entry</div>`
+    : "";
   return `
     <div class="card case">
       <div class="row">
@@ -105,6 +119,7 @@ function caseCard(c, showActions) {
         </div>
         <div class="meta">${(c.status || "").replace("_", " ")}${c.reviewed_by ? " by " + c.reviewed_by : ""}</div>
       </div>
+      ${dupeWarning}
       <div class="log">${rules}</div>
       ${showActions ? `
         <div class="btns">
