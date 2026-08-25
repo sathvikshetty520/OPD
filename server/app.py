@@ -154,14 +154,11 @@ def logout():
 def health():
     return jsonify({"status": "ok"})
 
-
-if __name__ == "__main__":
-    if DEBUG_MODE:
-        print("WARNING: running with FLASK_DEBUG=true -- do not use this in any real deployment.")
-    app.run(host="0.0.0.0", port=5000, debug=DEBUG_MODE)
-
-@app.route("/api/cases/<case_id>/duplicates", methods=["GET"])
+@app.route("/api/cases/<case_id>/duplicates", methods=["GET", "OPTIONS"])
 def get_duplicates(case_id):
+    if request.method == "OPTIONS":
+        return "", 200
+
     station_id = authenticate(request)
     if not station_id:
         return jsonify({"error": "unauthorized"}), 401
@@ -173,3 +170,11 @@ def get_duplicates(case_id):
 
     dupes = db.find_possible_duplicates(row["patient_token"], case_id)
     return jsonify(dupes)
+
+if __name__ == "__main__":
+    if DEBUG_MODE:
+        print("WARNING: running with FLASK_DEBUG=true -- do not use this in any real deployment.")
+    app.run(host="0.0.0.0", port=5000, debug=DEBUG_MODE)
+
+
+
