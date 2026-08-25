@@ -62,9 +62,9 @@ async function loadCases() {
 }
 
 async function attachDuplicateWarnings() {
-  const pending = state.cases.filter((c) => c.status === "pending_review");
+  // Check all cases now, not just pending -- so "All cases" also shows the warning.
   await Promise.all(
-    pending.map(async (c) => {
+    state.cases.map(async (c) => {
       const dupes = await fetchDuplicates(c.case_id);
       c.duplicateCount = dupes.length;
     })
