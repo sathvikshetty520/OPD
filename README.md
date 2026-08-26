@@ -39,6 +39,12 @@ deployment" below.
   server (station-key authenticated) with a local-IndexedDB fallback for
   single-device use. Review actions (confirm/downgrade) require a logged-in
   staff session (see Auth below) and are recorded with `reviewed_by`.
+  - Review-race protection: if two staff members act on the same case
+    near-simultaneously, the second request is rejected with a conflict
+    message and the queue refreshes, instead of silently overwriting.
+  - Duplicate-patient warning: cases sharing the same patient token show an
+    amber warning badge, in both the Escalation queue and All cases tabs,
+    using the batched duplicate-check endpoint.
 
 - `server/` — Flask + SQLite central store.
   - `POST /api/cases`, `GET /api/cases` — station-key authenticated
@@ -47,20 +53,25 @@ deployment" below.
   - `POST /api/auth/login`, `POST /api/auth/logout` — staff session tokens
   - `GET /api/health`
   - `server/create_user.py` — CLI script to seed staff accounts
+  - `GET /api/cases/<id>/duplicates` — surfaces other cases sharing the same
+    patient_token, for catching a patient accidentally logged at two stations
+  - `POST /api/cases/duplicates/batch` — same check for many cases in a
+    single request (`{case_id: patient_token, ...}` -> `{case_id: count, ...}`).
+    Used by staff-dashboard so polling doesn't fire one request per case.
 
 ## Running everything together
 
 Three terminals, in this order:
 
 **0. First time only: set up config files**
-```
+
 cd server
 copy .env.example .env          # edit .env with real values
 cd ..\intake-app\src
 copy config.example.js config.js   # edit config.js, STATION_KEY must match server's .env
 cd ..\..\staff-dashboard\src
 copy config.example.js config.js   # same STATION_KEY as above
-```
+
 
 **1. Central server**
 cd server
@@ -161,6 +172,8 @@ is kept out of code entirely so a clinician can review and version it
 without touching software. `server/` exists purely to reconcile cases and
 review outcomes across multiple intake stations — a single-station setup
 can run entirely without it, falling back to local IndexedDB.
+
+## Known gaps / before any real deployment
 
 ## Known gaps / before any real deployment
 
