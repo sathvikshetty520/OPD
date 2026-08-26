@@ -171,6 +171,22 @@ def get_duplicates(case_id):
     dupes = db.find_possible_duplicates(row["patient_token"], case_id)
     return jsonify(dupes)
 
+@app.route("/api/cases/duplicates/batch", methods=["POST"])
+def get_duplicates_batch():
+    station_id = authenticate(request)
+    if not station_id:
+        return jsonify({"error": "unauthorized"}), 401
+
+    body = request.get_json(force=True)
+    case_tokens = body.get("case_tokens", {})  # { case_id: patient_token, ... }
+
+    if not case_tokens:
+        return jsonify({})
+
+    tokens = list(set(case_tokens.values()))
+    counts = db.find_duplicate_counts(tokens, case_tokens)
+    return jsonify(counts)
+
 if __name__ == "__main__":
     if DEBUG_MODE:
         print("WARNING: running with FLASK_DEBUG=true -- do not use this in any real deployment.")

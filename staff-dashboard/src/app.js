@@ -1,4 +1,4 @@
-import { fetchCasesFromServer, pushReviewOutcome, login, logout, getStoredSession, fetchDuplicates } from "./api-client/client.js";
+import { fetchCasesFromServer, pushReviewOutcome, login, logout, getStoredSession, fetchDuplicatesBatch } from "./api-client/client.js";
 import { fetchCasesFromLocalDevice, updateCaseOnLocalDevice } from "./local-fallback.js";
 
 const state = { cases: [], source: "unknown" };
@@ -62,13 +62,11 @@ async function loadCases() {
 }
 
 async function attachDuplicateWarnings() {
-  // Check all cases now, not just pending -- so "All cases" also shows the warning.
-  await Promise.all(
-    state.cases.map(async (c) => {
-      const dupes = await fetchDuplicates(c.case_id);
-      c.duplicateCount = dupes.length;
-    })
-  );
+  const caseTokens = Object.fromEntries(state.cases.map((c) => [c.case_id, c.patient_token]));
+  const counts = await fetchDuplicatesBatch(caseTokens);
+  for (const c of state.cases) {
+    c.duplicateCount = counts[c.case_id] || 0;
+  }
 }
 
 async function resolveCase(caseId, outcome) {

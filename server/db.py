@@ -218,3 +218,29 @@ def find_possible_duplicates(patient_token: str, exclude_case_id: str, window_mi
             (patient_token, exclude_case_id),
         ).fetchall()
     return [row_to_dict(r) for r in rows]
+
+def find_duplicate_counts(patient_tokens: list[str], exclude_case_ids: dict[str, str]):
+    """
+    Given a list of patient_tokens (with each token's own case_id to exclude
+    from its own count), return a dict of {case_id: duplicate_count} in a
+    single query instead of one query per case.
+    """
+    if not patient_tokens:
+        return {}
+
+    with get_conn() as conn:
+        placeholders = ",".join("?" * len(patient_tokens))
+        rows = conn.execute(
+            f"SELECT case_id, patient_token FROM cases WHERE patient_token IN ({placeholders})",
+            patient_tokens,
+        ).fetchall()
+
+    by_token: dict[str, list[str]] = {}
+    for row in rows:
+        by_token.setdefault(row["patient_token"], []).append(row["case_id"])
+
+    result = {}
+    for case_id, token in exclude_case_ids.items():
+        matches = by_token.get(token, [])
+        result[case_id] = len([m for m in matches if m != case_id])
+    return result

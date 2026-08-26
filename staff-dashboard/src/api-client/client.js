@@ -122,3 +122,17 @@ export async function fetchDuplicates(caseId) {
     return [];
   }
 }
+
+export async function fetchDuplicatesBatch(caseTokens) {
+  try {
+    const res = await fetch(`${SERVER_ENDPOINT}/duplicates/batch`, {
+      method: "POST",
+      headers: STATION_HEADERS,
+      body: JSON.stringify({ case_tokens: caseTokens }),
+    });
+    if (!res.ok) return {};
+    return await res.json();
+  } catch (e) {
+    return {};
+  }
+}
