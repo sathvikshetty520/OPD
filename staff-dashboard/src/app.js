@@ -108,7 +108,7 @@ function caseCard(c, showActions) {
     ? `<div class="dupe-warning">⚠ ${c.duplicateCount} other case(s) share this patient token -- possible duplicate entry</div>`
     : "";
   return `
-    <div class="card case">
+    <div class="card case tier-${c.tier}">
       <div class="row">
         <div>
           <span class="badge tier-${c.tier}">${c.tier_label || c.tier}</span>
