@@ -93,7 +93,7 @@ async function renderCaseHistory() {
       else statusLabel = "routed";
 
       return `
-      <div class="case-row">
+      <div class="case-row tier-${c.tier}">
         <span class="badge tier-${c.tier}">${c.tier_label}</span>
         <span class="token">${c.patient_token}</span>
         <span class="dept">${c.department}</span>
