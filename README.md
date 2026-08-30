@@ -92,6 +92,58 @@ python -m http.server 8000
 - `http://localhost:8000/intake-app/`
 - `http://localhost:8000/staff-dashboard/`
 
+## Deploying on a hospital LAN (no internet required)
+
+For real use in a low-connectivity setting, run everything on one machine
+connected to the hospital's local WiFi/network — other devices (front-desk
+tablets, staff phones) connect over LAN, no internet dependency.
+
+**1. Use a production WSGI server instead of Flask's dev server**
+
+cd server
+python -m pip install waitress
+python serve.py
+
+`serve.py` wraps the same Flask app with `waitress`, suitable for real use
+(unlike `python app.py`, which is dev-only — see the startup warning it
+prints). `app.py`'s own `__main__` block stays for local development.
+
+**2. Find the server machine's LAN IP**
+ipconfig
+
+Look for "IPv4 Address" (e.g. `192.168.1.102`).
+
+**3. Point both apps' config at that IP, not localhost**
+
+In `intake-app/src/config.js` and `staff-dashboard/src/config.js`:
+```javascript
+export const SYNC_ENDPOINT = "http://192.168.1.102:5000/api/cases";   // intake-app
+export const SERVER_ENDPOINT = "http://192.168.1.102:5000/api/cases"; // staff-dashboard -- note different variable name
+```
+**Important**: intake-app's config exports `SYNC_ENDPOINT`; staff-dashboard's
+exports `SERVER_ENDPOINT`. Mixing these up (e.g. pasting one file's content
+into the other) causes a silent `does not provide an export` error in the
+browser console — easy mistake since the two files otherwise look identical.
+
+**4. Serve the static apps bound to all interfaces (default behavior)**
+cd opd-triage
+python -m http.server 8000
+
+
+**5. From another device on the same WiFi**
+http://192.168.1.102:8000/intake-app/
+http://192.168.1.102:8000/staff-dashboard/
+
+
+**6. Windows Firewall** may prompt to allow Python through on first run from
+another device — allow it, or manually add inbound rules for ports 5000 and
+8000.
+
+**Known limitations of this deployment approach**: no HTTPS (acceptable on a
+closed hospital LAN with no internet exposure, but traffic isn't encrypted);
+the deployment machine is a single point of failure; SQLite is fine at this
+scale but not built for heavy concurrent write load.
+
 ## Testing the full loop
 
 1. In intake-app: submit a case with a red flag checked. Status bar should
@@ -175,14 +227,13 @@ can run entirely without it, falling back to local IndexedDB.
 
 ## Known gaps / before any real deployment
 
-## Known gaps / before any real deployment
-
 1. **No clinical review yet** — the single largest blocker, independent of
    code quality. See "Clinical review" above.
-2. Station keys and staff credentials are hardcoded dev defaults — move to
-   real per-station config before deployment.
-3. Move off the Flask dev server (`python app.py`) to a production WSGI
-   server before any non-local deployment.
-4. Handle multi-station conflicts (two stations offline simultaneously,
-   overlapping patient tokens, syncing later).
-5. `docs/architecture.md` is not written yet.
+2. LAN deployment (see "Deploying on a hospital LAN" above) works for a
+   single deployment machine + multiple client devices on the same network.
+   Not yet tested with HTTPS, a non-SQLite database, or genuine multi-day
+   uptime under real hospital conditions.
+3. Station keys are per-deployment config now (not hardcoded), but still a
+   single shared key per station rather than per-device credentials with
+   individual revocation.
+4. `docs/architecture.md` is not written yet.
