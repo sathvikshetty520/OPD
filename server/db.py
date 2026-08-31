@@ -1,18 +1,10 @@
-"""
-Central SQLite store for synced triage cases.
-
-This is intentionally simple (SQLite, single file) — the point of this
-server is to reconcile cases across intake stations, not to be a
-high-throughput system. A hospital OPD's case volume does not need
-anything heavier than this.
-"""
-
 import sqlite3
 import json
 import datetime
 from pathlib import Path
 from contextlib import contextmanager
 
+import auth 
 DB_PATH = Path(__file__).parent / "data" / "cases.db"
 
 SCHEMA = """
@@ -31,18 +23,44 @@ CREATE TABLE IF NOT EXISTS cases (
     reviewed_at TEXT,
     reviewed_by TEXT,
     station_id TEXT,
-    received_at TEXT NOT NULL  -- when the server first saw this case
+    received_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_status ON cases(status);
 CREATE INDEX IF NOT EXISTS idx_timestamp ON cases(timestamp);
 """
 
+SCHEMA_USERS = """
+CREATE TABLE IF NOT EXISTS users (
+    username TEXT PRIMARY KEY,
+    password_hash TEXT NOT NULL,
+    display_name TEXT,
+    role TEXT DEFAULT 'staff',
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sessions (
+    token TEXT PRIMARY KEY,
+    username TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL
+);
+"""
+
+SCHEMA_STATIONS = """
+CREATE TABLE IF NOT EXISTS stations (
+    station_id TEXT PRIMARY KEY,
+    key_hash TEXT NOT NULL,
+    device_name TEXT,
+    created_at TEXT NOT NULL,
+    revoked INTEGER DEFAULT 0
+);
+"""
 
 def init_db():
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     with get_conn() as conn:
         conn.executescript(SCHEMA)
-
+        conn.executescript(SCHEMA_USERS)
+        conn.executescript(SCHEMA_STATIONS)
 
 @contextmanager
 def get_conn():
@@ -54,6 +72,7 @@ def get_conn():
     finally:
         conn.close()
 
+# ---------------- Cases ----------------
 
 def upsert_case(case: dict, station_id: str, received_at: str):
     with get_conn() as conn:
@@ -79,25 +98,16 @@ def upsert_case(case: dict, station_id: str, received_at: str):
             ),
         )
 
-
 def patch_case(case_id: str, patch: dict, expected_status: str | None = None):
-    """
-    If expected_status is given, only apply the patch if the case's current
-    status still matches it -- prevents two staff members from silently
-    overwriting each other's review of the same case.
-    Returns (updated_row, conflict) where conflict is the current row if the
-    expected_status check failed, else None.
-    """
     with get_conn() as conn:
         existing = conn.execute("SELECT * FROM cases WHERE case_id=?", (case_id,)).fetchone()
         if not existing:
             return None, None
 
         if expected_status is not None and existing["status"] != expected_status:
-            return None, row_to_dict(existing)  # conflict: someone else already reviewed it
+            return None, row_to_dict(existing)
 
-        fields = []
-        values = []
+        fields, values = [], []
         for key in ("status", "reviewed_at", "reviewed_by"):
             if key in patch:
                 fields.append(f"{key}=?")
@@ -108,17 +118,9 @@ def patch_case(case_id: str, patch: dict, expected_status: str | None = None):
         updated = conn.execute("SELECT * FROM cases WHERE case_id=?", (case_id,)).fetchone()
         return row_to_dict(updated), None
 
-
 def list_cases(hours: int | None = None):
-    """
-    Returns cases from the last `hours` hours (rolling window, not calendar-day
-    truncation), PLUS every case still pending_review regardless of age --
-    an escalated case must never silently disappear from view because a
-    shift crossed midnight.
-    """
     with get_conn() as conn:
         rows = conn.execute("SELECT * FROM cases ORDER BY timestamp DESC LIMIT 500").fetchall()
-
     all_cases = [row_to_dict(r) for r in rows]
 
     if hours is None:
@@ -133,11 +135,8 @@ def list_cases(hours: int | None = None):
             result.append(c)
     return result
 
-
 def _parse_ts(ts: str) -> "datetime.datetime":
-    # timestamps are stored as ISO 8601, e.g. "2026-08-20T12:05:23.233Z"
     return datetime.datetime.fromisoformat(ts.replace("Z", "+00:00"))
-
 
 def row_to_dict(row: sqlite3.Row) -> dict:
     d = dict(row)
@@ -145,73 +144,66 @@ def row_to_dict(row: sqlite3.Row) -> dict:
     d["escalate"] = bool(d["escalate"])
     return d
 
-# Add to SCHEMA string, alongside the existing `cases` table:
-SCHEMA_USERS = """
-CREATE TABLE IF NOT EXISTS users (
-    username TEXT PRIMARY KEY,
-    password_hash TEXT NOT NULL,
-    display_name TEXT,
-    role TEXT DEFAULT 'staff',
-    created_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS sessions (
-    token TEXT PRIMARY KEY,
-    username TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    expires_at TEXT NOT NULL
-);
-"""
-
-# In init_db(), execute both schemas:
-def init_db():
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with get_conn() as conn:
-        conn.executescript(SCHEMA)
-        conn.executescript(SCHEMA_USERS)
-
-
-# New functions -- add anywhere below the existing ones:
+# ---------------- Users/Sessions ----------------
 
 def create_user(username: str, password_hash: str, display_name: str, role: str = "staff"):
-    import datetime
     with get_conn() as conn:
         conn.execute(
             "INSERT INTO users (username, password_hash, display_name, role, created_at) VALUES (?, ?, ?, ?, ?)",
             (username, password_hash, display_name, role, datetime.datetime.now(datetime.timezone.utc).isoformat()),
         )
 
-
 def get_user(username: str):
     with get_conn() as conn:
         row = conn.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
         return dict(row) if row else None
 
-
 def create_session(token: str, username: str, expires_at: str):
-    import datetime
     with get_conn() as conn:
         conn.execute(
             "INSERT INTO sessions (token, username, created_at, expires_at) VALUES (?, ?, ?, ?)",
             (token, username, datetime.datetime.now(datetime.timezone.utc).isoformat(), expires_at),
         )
 
-
 def get_session(token: str):
     with get_conn() as conn:
         row = conn.execute("SELECT * FROM sessions WHERE token=?", (token,)).fetchone()
         return dict(row) if row else None
 
-
 def delete_session(token: str):
     with get_conn() as conn:
         conn.execute("DELETE FROM sessions WHERE token=?", (token,))
 
+# ---------------- Stations ----------------
+
+def create_station(station_id: str, key_hash: str, device_name: str):
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO stations (station_id, key_hash, device_name, created_at, revoked) VALUES (?, ?, ?, ?, 0)",
+            (station_id, key_hash, device_name, datetime.datetime.now(datetime.timezone.utc).isoformat()),
+        )
+
+def get_all_stations():
+    with get_conn() as conn:
+        rows = conn.execute("SELECT station_id, device_name, created_at, revoked FROM stations").fetchall()
+        return [dict(r) for r in rows]
+
+def find_station_by_key(key: str):
+    """Checks the given raw key against every non-revoked station's hash. Returns station_id or None."""
+    with get_conn() as conn:
+        rows = conn.execute("SELECT station_id, key_hash FROM stations WHERE revoked = 0").fetchall()
+    for row in rows:
+        if auth.verify_password(key, row["key_hash"]):  # assumes you have an auth module
+            return row["station_id"]
+    return None
+
+def revoke_station(station_id: str):
+    with get_conn() as conn:
+        conn.execute("UPDATE stations SET revoked = 1 WHERE station_id = ?", (station_id,))
+
+# ---------------- Duplicate Checks ----------------
+
 def find_possible_duplicates(patient_token: str, exclude_case_id: str, window_minutes: int = 60):
-    """
-    Cases with the same patient_token submitted within `window_minutes` of
-    each other from potentially different stations -- surfaced as a warning,
-    never auto-merged, since only a human can confirm it's the same person.
-    """
     with get_conn() as conn:
         rows = conn.execute(
             "SELECT * FROM cases WHERE patient_token=? AND case_id != ? ORDER BY timestamp DESC LIMIT 10",
@@ -220,25 +212,17 @@ def find_possible_duplicates(patient_token: str, exclude_case_id: str, window_mi
     return [row_to_dict(r) for r in rows]
 
 def find_duplicate_counts(patient_tokens: list[str], exclude_case_ids: dict[str, str]):
-    """
-    Given a list of patient_tokens (with each token's own case_id to exclude
-    from its own count), return a dict of {case_id: duplicate_count} in a
-    single query instead of one query per case.
-    """
     if not patient_tokens:
         return {}
-
     with get_conn() as conn:
         placeholders = ",".join("?" * len(patient_tokens))
         rows = conn.execute(
             f"SELECT case_id, patient_token FROM cases WHERE patient_token IN ({placeholders})",
             patient_tokens,
         ).fetchall()
-
     by_token: dict[str, list[str]] = {}
     for row in rows:
         by_token.setdefault(row["patient_token"], []).append(row["case_id"])
-
     result = {}
     for case_id, token in exclude_case_ids.items():
         matches = by_token.get(token, [])

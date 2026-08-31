@@ -39,22 +39,17 @@ CORS(app)
 
 db.init_db()
 
-# Station auth: a set of allowed keys, loaded from .env.
-# e.g. STATION_KEYS="frontdesk1:key-abc,frontdesk2:key-def"
-STATION_KEYS = dict(
-    pair.split(":") for pair in os.environ.get("STATION_KEYS", "default:dev-key").split(",")
-)
+
 
 DEBUG_MODE = os.environ.get("FLASK_DEBUG", "false").lower() == "true"
 
 
 def authenticate(req) -> str | None:
-    """Station-level auth. Returns station_id if the X-Station-Key header is valid."""
+    """Station-level auth. Checks the X-Station-Key header against per-device credentials in the DB."""
     key = req.headers.get("X-Station-Key")
-    for station_id, valid_key in STATION_KEYS.items():
-        if key == valid_key:
-            return station_id
-    return None
+    if not key:
+        return None
+    return db.find_station_by_key(key)
 
 
 def authenticate_staff(req) -> str | None:
