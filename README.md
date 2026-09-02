@@ -168,6 +168,34 @@ scale but not built for heavy concurrent write load.
   or downgrading a case). Obtained via `POST /api/auth/login`. Sessions
   expire after 12 hours.
 
+## Per-device station credentials
+
+Station keys are no longer one shared secret in `.env` — each device gets
+its own individually provisioned, individually revocable credential stored
+(hashed) in the database.
+
+**Provision a new station (run once per device):**
+cd server
+python create_station.py "Front Desk 1"
+
+This prints a `station_id` and a `STATION_KEY`. The raw key is shown **once**
+and cannot be recovered later — copy it into that device's `config.js`
+immediately:
+```javascript
+export const STATION_KEY = "the-printed-key-here";
+```
+
+**List all provisioned stations:**
+
+python manage_stations.py list
+
+**Revoke a compromised or retired device** (without affecting any other station):
+
+python manage_stations.py revoke <station_id>
+
+The old `STATION_KEYS` env var is no longer used — `.env` only holds
+`FLASK_SECRET_KEY` and `FLASK_DEBUG` now.
+
 ## Secrets and configuration
 
 Station keys and Flask's secret key are no longer hardcoded in source files.
@@ -233,7 +261,4 @@ can run entirely without it, falling back to local IndexedDB.
    single deployment machine + multiple client devices on the same network.
    Not yet tested with HTTPS, a non-SQLite database, or genuine multi-day
    uptime under real hospital conditions.
-3. Station keys are per-deployment config now (not hardcoded), but still a
-   single shared key per station rather than per-device credentials with
-   individual revocation.
-4. `docs/architecture.md` is not written yet.
+3. `docs/architecture.md` is not written yet.
