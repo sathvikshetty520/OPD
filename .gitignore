@@ -4,3 +4,5 @@ server/data/
 server/.env
 intake-app/src/config.js
 staff-dashboard/src/config.js
+"server/cert.pem" 
+"server/key.pem" 
