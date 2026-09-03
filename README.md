@@ -131,8 +131,8 @@ python -m http.server 8000
 
 
 **5. From another device on the same WiFi**
-http://192.168.1.102:8000/intake-app/
-http://192.168.1.102:8000/staff-dashboard/
+http://192.168.1.104:8000/intake-app/
+http://192.168.1.104:8000/staff-dashboard/
 
 
 **6. Windows Firewall** may prompt to allow Python through on first run from
